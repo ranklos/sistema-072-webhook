@@ -55,10 +55,22 @@ app.post('/webhook', async (req, res) => {
     const traces = voiceflowResponse.data || [];
     
     traces.forEach(trace => {
+      // Procesar mensajes de texto
       if (trace.type === 'text' && trace.payload && trace.payload.message) {
         responseMessages.push(trace.payload.message);
-      } else if (trace.type === 'speak' && trace.payload && trace.payload.message) {
+      } 
+      // Procesar mensajes de voz
+      else if (trace.type === 'speak' && trace.payload && trace.payload.message) {
         responseMessages.push(trace.payload.message);
+      }
+      // Procesar botones (choice)
+      else if (trace.type === 'choice' && trace.payload && trace.payload.buttons) {
+        const buttons = trace.payload.buttons;
+        const buttonText = buttons.map((btn, idx) => `${idx + 1}. ${btn.name}`).join('\n');
+        
+        if (buttonText) {
+          responseMessages.push(buttonText);
+        }
       }
     });
     
@@ -90,10 +102,8 @@ app.get('/', (req, res) => {
   res.send(`
     <html><head><title>Sistema 072</title><style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:Arial,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);
-    min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-    .card{background:white;padding:40px;border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,0.3);
-    max-width:600px;width:100%;animation:slideIn .5s ease-out}
+    body{font-family:Arial,sans-serif;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .card{background:white;padding:40px;border-radius:20px;box-shadow:0 20px 60px rgba(0,0,0,0.3);max-width:600px;width:100%;animation:slideIn .5s ease-out}
     @keyframes slideIn{from{opacity:0;transform:translateY(30px)}to{opacity:1;transform:translateY(0)}}
     h1{color:#2d3748;font-size:32px;margin-bottom:10px}
     h2{color:#718096;font-size:18px;margin-bottom:25px;font-weight:400}
@@ -121,6 +131,7 @@ app.get('/', (req, res) => {
     <span class="badge">✓ WhatsApp</span>
     <span class="badge">✓ Voiceflow</span>
     <span class="badge">✓ Google Sheets</span>
+    <span class="badge">✓ Botones Soportados</span>
     </div></div></body></html>
   `);
 });
@@ -130,7 +141,8 @@ app.get('/test', (req, res) => {
     status: 'OK',
     service: 'Sistema 072 Webhook',
     timestamp: new Date().toISOString(),
-    voiceflow_project: VOICEFLOW_PROJECT_ID
+    voiceflow_project: VOICEFLOW_PROJECT_ID,
+    features: ['text', 'images', 'buttons']
   });
 });
 
