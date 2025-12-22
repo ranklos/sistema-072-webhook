@@ -25,6 +25,33 @@ app.post('/webhook', async (req, res) => {
     console.log('👤 Usuario:', userID);
     console.log('💬 Texto:', body);
     
+    // Detectar comandos de reset
+    const resetCommands = ['reset', 'reiniciar', 'inicio', 'start', 'comenzar', 'empezar'];
+    const bodyLower = (body || '').toLowerCase().trim();
+    
+    if (resetCommands.includes(bodyLower)) {
+      console.log('🔄 Reset solicitado, limpiando estado...');
+      
+      // Limpiar estado del usuario en Voiceflow
+      try {
+        await axios.delete(
+          `${VOICEFLOW_API_URL}/state/user/${userID}`,
+          { headers: { 'Authorization': VOICEFLOW_API_KEY }}
+        );
+        console.log('✅ Estado limpiado');
+      } catch (e) {
+        console.error('⚠️ Error limpiando estado:', e.message);
+      }
+      
+      // Enviar mensaje de confirmación
+      const twiml = new MessagingResponse();
+      twiml.message('🔄 Conversación reiniciada. Envía "Hola" para comenzar de nuevo.');
+      res.type('text/xml');
+      res.send(twiml.toString());
+      return;
+    }
+    
+    // Procesar fotos
     if (numMedia && parseInt(numMedia) > 0 && mediaUrl) {
       console.log('📸 Foto:', mediaUrl);
       try {
@@ -92,7 +119,7 @@ app.post('/webhook', async (req, res) => {
       console.error('Detalles:', JSON.stringify(error.response.data, null, 2));
     }
     const twiml = new MessagingResponse();
-    twiml.message('Lo sentimos, ocurrió un error. Intenta nuevamente.');
+    twiml.message('Lo sentimos, ocurrió un error. Intenta nuevamente o envía "reset" para reiniciar.');
     res.type('text/xml');
     res.send(twiml.toString());
   }
@@ -131,7 +158,7 @@ app.get('/', (req, res) => {
     <span class="badge">✓ WhatsApp</span>
     <span class="badge">✓ Voiceflow</span>
     <span class="badge">✓ Google Sheets</span>
-    <span class="badge">✓ Botones Soportados</span>
+    <span class="badge">✓ Reset Support</span>
     </div></div></body></html>
   `);
 });
@@ -142,7 +169,7 @@ app.get('/test', (req, res) => {
     service: 'Sistema 072 Webhook',
     timestamp: new Date().toISOString(),
     voiceflow_project: VOICEFLOW_PROJECT_ID,
-    features: ['text', 'images', 'buttons']
+    features: ['text', 'images', 'buttons', 'reset']
   });
 });
 
