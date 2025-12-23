@@ -10,7 +10,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
 // Configuración de Voiceflow
-const VF_API_KEY = process.env.VF_API_KEY || 'VF.DM.67651e18e496e30007bb97e6.qc4ueABq5LsBK1Pf';
+const VF_API_KEY = process.env.VF_API_KEY || 'VF.DM.6948761e2e2af30c86b18d82.5kGMBY2qIFvu5Hg1';
 const VF_VERSION_ID = 'production';
 const VF_API_URL = 'https://general-runtime.voiceflow.com';
 
