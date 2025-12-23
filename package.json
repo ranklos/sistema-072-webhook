@@ -1,15 +1,25 @@
 {
   "name": "sistema-072-webhook",
-  "version": "1.0.0",
+  "version": "3.0.0",
+  "type": "module",
+  "description": "Webhook para integración Voiceflow + Twilio WhatsApp",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js"
+    "start": "node index.js",
+    "dev": "node --watch index.js"
   },
+  "keywords": [
+    "voiceflow",
+    "twilio",
+    "whatsapp",
+    "webhook"
+  ],
+  "author": "",
+  "license": "ISC",
   "dependencies": {
     "express": "^4.18.2",
-    "body-parser": "^1.20.2",
-    "axios": "^1.6.7",
-    "twilio": "^4.20.0"
+    "axios": "^1.6.2",
+    "twilio": "^4.19.0"
   },
   "engines": {
     "node": ">=18.0.0"
