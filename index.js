@@ -1,15 +1,24 @@
 import express from 'express';
 import axios from 'axios';
-import twilio from 'twilio';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware para procesar datos de Twilio
-app.use(express.urlencoded({ extended: true }));
+// Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-// Configuración de Voiceflow
+// ============================================
+// CONFIGURACIÓN META WHATSAPP
+// ============================================
+const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN || 'EAAUeHuGqLnkBQW3Hm5yV4SbfQ5zA0CDydm9TaP5AhUvcqfIg0wUgxZADmhZB6UQK2yNc6H46u3H1abzm4TGvX3ZAboE1k94mV5W11XUZBea0bPRDswTZAfIBbzLsZBhPxdp41WTQRSlGpIV7u0BOg8Ck7FYPWVQJY4vP9R0LkCfKb8jVsejLKhgon6GKTBUjHfeM0QmIIvkSI3aG2wBiQoFPC3aMTpJGPOWRc1xRiXBJuJZCws2BCfWZCePteZALPpUPZAuxb5aLVcgCYJ6SVCwgCjSy25nTpLybGs';
+const META_PHONE_NUMBER_ID = process.env.META_PHONE_NUMBER_ID || '872491752621526';
+const META_VERIFY_TOKEN = process.env.META_VERIFY_TOKEN || 'sistema072_verify_token_2024';
+const META_WHATSAPP_ACCOUNT_ID = process.env.META_WHATSAPP_ACCOUNT_ID || '1417886129685401';
+
+// ============================================
+// CONFIGURACIÓN VOICEFLOW
+// ============================================
 const VF_API_KEY = process.env.VF_API_KEY || 'VF.DM.6948761e2e2af30c86b18d82.5kGMBY2qIFvu5Hg1';
 const VF_VERSION_ID = 'production';
 const VF_API_URL = 'https://general-runtime.voiceflow.com';
@@ -17,7 +26,11 @@ const VF_API_URL = 'https://general-runtime.voiceflow.com';
 // Estado de usuarios (en memoria)
 const userStates = new Map();
 
-// Helper: Obtener o crear estado de usuario
+// ============================================
+// HELPERS
+// ============================================
+
+// Obtener o crear estado de usuario
 function getUserState(userId) {
     if (!userStates.has(userId)) {
         userStates.set(userId, {
@@ -28,46 +41,27 @@ function getUserState(userId) {
     return userStates.get(userId);
 }
 
-// Helper: Limpiar estado de usuario
+// Limpiar estado de usuario
 function clearUserState(userId) {
     console.log(`🔄 Limpiando estado de usuario: ${userId}`);
     userStates.delete(userId);
-}
-
-// Helper: Extraer URL de fotos de Twilio
-function extractPhotoUrls(req) {
-    const numMedia = parseInt(req.body.NumMedia || '0', 10);
-    const photoUrls = [];
     
-    for (let i = 0; i < numMedia; i++) {
-        const mediaUrl = req.body[`MediaUrl${i}`];
-        const contentType = req.body[`MediaContentType${i}`];
-        
-        if (mediaUrl && contentType && contentType.startsWith('image/')) {
-            photoUrls.push(mediaUrl);
-            console.log(`📸 Foto ${i + 1} detectada: ${mediaUrl}`);
+    // También limpiar estado en Voiceflow
+    return axios.delete(`${VF_API_URL}/state/user/${userId}`, {
+        headers: {
+            Authorization: VF_API_KEY,
+            versionID: VF_VERSION_ID
         }
-    }
-    
-    return photoUrls;
+    }).catch(err => console.error('Error limpiando Voiceflow:', err.message));
 }
 
-// Helper: Enviar mensaje a Voiceflow
-async function sendToVoiceflow(userId, userMessage, photoUrls = []) {
+// Enviar mensaje a Voiceflow
+async function sendToVoiceflow(userId, userMessage, photoUrl = null) {
     try {
-        const userState = getUserState(userId);
-        
-        // Si hay fotos, enviar el URL directamente como mensaje
-        let messageToSend = userMessage;
-        if (photoUrls.length > 0) {
-            messageToSend = photoUrls[0]; // Enviar el primer URL de foto
-            console.log(`📸 Enviando foto a Voiceflow: ${messageToSend}`);
-        }
-        
         const payload = {
             action: {
                 type: 'text',
-                payload: messageToSend
+                payload: photoUrl || userMessage
             },
             config: {
                 tts: false,
@@ -77,7 +71,7 @@ async function sendToVoiceflow(userId, userMessage, photoUrls = []) {
             },
             state: {
                 variables: {
-                    foto_url: photoUrls.length > 0 ? photoUrls[0] : undefined
+                    foto_url: photoUrl || undefined
                 }
             }
         };
@@ -97,7 +91,7 @@ async function sendToVoiceflow(userId, userMessage, photoUrls = []) {
             }
         );
 
-        console.log(`✅ Respuesta de Voiceflow:`, JSON.stringify(response.data, null, 2));
+        console.log(`✅ Respuesta de Voiceflow recibida`);
         return response.data;
     } catch (error) {
         console.error('❌ Error al comunicarse con Voiceflow:', error.response?.data || error.message);
@@ -105,7 +99,7 @@ async function sendToVoiceflow(userId, userMessage, photoUrls = []) {
     }
 }
 
-// Helper: Procesar respuesta de Voiceflow
+// Procesar respuesta de Voiceflow
 function processVoiceflowResponse(traces) {
     const messages = [];
     
@@ -116,7 +110,6 @@ function processVoiceflowResponse(traces) {
                 messages.push(text);
             }
         } else if (trace.type === 'choice') {
-            // Convertir botones en texto numerado
             const buttons = trace.payload?.buttons || [];
             if (buttons.length > 0) {
                 const buttonText = buttons
@@ -130,77 +123,163 @@ function processVoiceflowResponse(traces) {
     return messages.join('\n\n');
 }
 
-// Endpoint principal de webhook
-app.post('/webhook', async (req, res) => {
+// Enviar mensaje por Meta WhatsApp
+async function sendWhatsAppMessage(to, message) {
     try {
-        console.log('📩 Mensaje recibido de Twilio:', JSON.stringify(req.body, null, 2));
-
-        const from = req.body.From || '';
-        const body = req.body.Body || '';
-        const userId = from.replace('whatsapp:', '');
+        const response = await axios.post(
+            `https://graph.facebook.com/v22.0/${META_PHONE_NUMBER_ID}/messages`,
+            {
+                messaging_product: 'whatsapp',
+                recipient_type: 'individual',
+                to: to,
+                type: 'text',
+                text: { body: message }
+            },
+            {
+                headers: {
+                    'Authorization': `Bearer ${META_ACCESS_TOKEN}`,
+                    'Content-Type': 'application/json'
+                }
+            }
+        );
         
-        // Extraer URLs de fotos
-        const photoUrls = extractPhotoUrls(req);
-        
-        if (photoUrls.length > 0) {
-            console.log(`📸 ${photoUrls.length} foto(s) detectada(s) de usuario: ${userId}`);
-        }
-
-        // Comandos especiales
-        if (body.toLowerCase() === 'reset' || body.toLowerCase() === 'inicio' || body.toLowerCase() === 'reiniciar') {
-            console.log(`🔄 Comando de reset recibido de: ${userId}`);
-            clearUserState(userId);
-            
-            const twiml = new twilio.twiml.MessagingResponse();
-            twiml.message('🔄 Conversación reiniciada. Envía "Hola" para comenzar de nuevo.');
-            
-            res.type('text/xml');
-            return res.send(twiml.toString());
-        }
-
-        // Enviar mensaje (o foto) a Voiceflow
-        let messageToSend = body || 'Foto enviada';
-        const vfResponse = await sendToVoiceflow(userId, messageToSend, photoUrls);
-
-        // Procesar respuesta
-        const responseText = processVoiceflowResponse(vfResponse);
-
-        // Enviar respuesta a WhatsApp
-        const twiml = new twilio.twiml.MessagingResponse();
-        if (responseText) {
-            twiml.message(responseText);
-        } else {
-            twiml.message('Mensaje recibido correctamente.');
-        }
-
-        res.type('text/xml');
-        res.send(twiml.toString());
-
+        console.log('✅ Mensaje enviado a WhatsApp:', response.data);
+        return response.data;
     } catch (error) {
-        console.error('❌ Error en webhook:', error);
-        
-        const twiml = new twilio.twiml.MessagingResponse();
-        twiml.message('Lo siento, hubo un error al procesar tu mensaje. Por favor intenta de nuevo.');
-        
-        res.type('text/xml');
-        res.send(twiml.toString());
+        console.error('❌ Error enviando mensaje a WhatsApp:', error.response?.data || error.message);
+        throw error;
+    }
+}
+
+// ============================================
+// WEBHOOK VERIFICATION (GET)
+// ============================================
+app.get('/webhook', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    console.log('🔍 Verificación de webhook recibida');
+    console.log('Mode:', mode);
+    console.log('Token recibido:', token);
+    console.log('Token esperado:', META_VERIFY_TOKEN);
+
+    if (mode === 'subscribe' && token === META_VERIFY_TOKEN) {
+        console.log('✅ Webhook verificado correctamente');
+        res.status(200).send(challenge);
+    } else {
+        console.error('❌ Verificación de webhook fallida');
+        res.status(403).send('Forbidden');
     }
 });
 
-// Health check
+// ============================================
+// WEBHOOK MESSAGES (POST)
+// ============================================
+app.post('/webhook', async (req, res) => {
+    try {
+        console.log('📩 Webhook recibido de Meta:', JSON.stringify(req.body, null, 2));
+
+        // Validar estructura
+        const entry = req.body.entry?.[0];
+        const changes = entry?.changes?.[0];
+        const value = changes?.value;
+        const messages = value?.messages;
+
+        if (!messages || messages.length === 0) {
+            console.log('⚠️ Sin mensajes en el webhook (probablemente status update)');
+            return res.sendStatus(200);
+        }
+
+        const message = messages[0];
+        const from = message.from; // Número del usuario
+        const messageType = message.type;
+        const userId = from;
+
+        console.log(`👤 Usuario: ${userId}`);
+        console.log(`📝 Tipo de mensaje: ${messageType}`);
+
+        let userMessage = '';
+        let photoUrl = null;
+
+        // Procesar según tipo de mensaje
+        if (messageType === 'text') {
+            userMessage = message.text.body;
+            console.log(`💬 Mensaje de texto: "${userMessage}"`);
+        } else if (messageType === 'image') {
+            const imageId = message.image.id;
+            photoUrl = `https://graph.facebook.com/v22.0/${imageId}`;
+            userMessage = message.image.caption || 'Foto enviada';
+            console.log(`📸 Foto recibida: ${photoUrl}`);
+        } else {
+            console.log(`⚠️ Tipo de mensaje no soportado: ${messageType}`);
+            await sendWhatsAppMessage(from, 'Lo siento, solo puedo procesar mensajes de texto y fotos.');
+            return res.sendStatus(200);
+        }
+
+        // Comandos especiales
+        if (userMessage.toLowerCase() === 'reset' || 
+            userMessage.toLowerCase() === 'inicio' || 
+            userMessage.toLowerCase() === 'reiniciar') {
+            console.log(`🔄 Comando de reset recibido de: ${userId}`);
+            await clearUserState(userId);
+            await sendWhatsAppMessage(from, '🔄 Conversación reiniciada. Envía "Hola" para comenzar de nuevo.');
+            return res.sendStatus(200);
+        }
+
+        // Enviar a Voiceflow
+        const vfResponse = await sendToVoiceflow(userId, userMessage, photoUrl);
+        const responseText = processVoiceflowResponse(vfResponse);
+
+        // Enviar respuesta a WhatsApp
+        if (responseText) {
+            await sendWhatsAppMessage(from, responseText);
+        } else {
+            await sendWhatsAppMessage(from, 'Mensaje recibido correctamente.');
+        }
+
+        res.sendStatus(200);
+
+    } catch (error) {
+        console.error('❌ Error en webhook:', error);
+        res.sendStatus(500);
+    }
+});
+
+// ============================================
+// HEALTH CHECK
+// ============================================
 app.get('/', (req, res) => {
-    res.json({ 
+    res.json({
         status: 'ok',
-        service: 'Sistema 072 Webhook',
-        version: '3.0.0-photos',
+        service: 'Sistema 072 - Meta WhatsApp Webhook',
+        version: '4.0.0-meta',
         timestamp: new Date().toISOString(),
-        features: ['voiceflow', 'twilio', 'photo-capture', 'reset-command']
+        config: {
+            phone_number_id: META_PHONE_NUMBER_ID,
+            account_id: META_WHATSAPP_ACCOUNT_ID,
+            voiceflow_connected: !!VF_API_KEY
+        },
+        features: [
+            'meta-whatsapp',
+            'voiceflow',
+            'photo-capture',
+            'reset-command',
+            'webhook-verification'
+        ]
     });
 });
 
-// Iniciar servidor
+// ============================================
+// INICIAR SERVIDOR
+// ============================================
 app.listen(PORT, () => {
     console.log(`✅ Servidor corriendo en puerto ${PORT}`);
+    console.log(`📱 Meta WhatsApp: CONFIGURADO`);
+    console.log(`   - Phone Number ID: ${META_PHONE_NUMBER_ID}`);
+    console.log(`   - Account ID: ${META_WHATSAPP_ACCOUNT_ID}`);
+    console.log(`🤖 Voiceflow: CONECTADO`);
     console.log(`📸 Captura de fotos: ACTIVADA`);
     console.log(`🔄 Comando reset: ACTIVADO`);
+    console.log(`🔒 Verify Token: ${META_VERIFY_TOKEN}`);
 });
